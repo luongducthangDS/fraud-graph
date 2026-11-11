@@ -1,6 +1,8 @@
 # fraud-graph: agent notes
 
-Dự án phủ phần Fraud Detection trong JD (ML, Graph, Anomaly, Semi-supervised, realtime và batch). Commit local, chưa có remote.
+Dự án phủ phần Fraud Detection trong JD (ML, Graph, Anomaly, Semi-supervised, realtime và batch). Chưa có remote.
+
+**11/11: thư mục bị mất khi di chuyển (robocopy) rồi được khôi phục từ lịch sử Claude Code** (commit mới `89c24f0`; các commit cũ `4b83ed1`, `fa8708f` không còn). Code, docs, test (5/5 pass), CI, Dockerfile đã về. Mất: `artifacts/` (gồm `report.json`) và `data/`; chạy lại `python -m fg.train` để tạo lại. Việc đầu tiên: tạo repo GitHub và push để không mất lần nữa.
 
 Đọc trước khi làm: [docs/RULES.md](docs/RULES.md) > [docs/PRD.md](docs/PRD.md) > [ARCHITECTURE](docs/ARCHITECTURE.md), [DESIGN](docs/DESIGN.md), [TASKS](docs/TASKS.md), [PROGRESS](docs/PROGRESS.md).
 
