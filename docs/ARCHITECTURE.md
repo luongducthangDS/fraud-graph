@@ -9,7 +9,8 @@ fg/data.py     tải mirror HF yhoma/elliptic-bitcoin-dataset → data/raw/, cac
 fg/graph.py    adjacency trong cùng step, đặc trưng hàng xóm vào/ra, mean/max điểm hàng xóm
 fg/train.py    backtest (train step 1–34, test 35–49), OOF theo khối thời gian, hai tầng realtime/batch,
                IF, RF, self-training, PSI monitoring → artifacts/ (report.json, store.parquet ~75 MB)
-fg/api.py      POST /score realtime, GET /monitoring, GET /health; online store trong bộ nhớ
+fg/api.py      POST /score realtime (action pass/analyst_review), GET /monitoring, /metrics, /health; API key, log JSON; online store trong bộ nhớ
+fg/gate.py     regression gate: report.json so với eval/baseline.json + phải thắng RF/LightGBM AF/IF
 fg/batch.py    chấm batch cuối step (cạnh vào + ra)
 tests/test_pipeline.py  không dùng nhãn test, parity API/offline, ... (N_TREES=50)
 ```

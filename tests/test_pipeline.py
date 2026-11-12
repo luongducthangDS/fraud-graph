@@ -99,3 +99,40 @@ def test_batch_job_matches_offline(g, trained):
     got = batch.score_steps(nodes, edges, [40, 41], art=out).set_index("txId")["score"]
     want = pd.read_parquet(out / "scores_batch.parquet").set_index("txId")["score"].loc[got.index]
     np.testing.assert_allclose(got, want, atol=1e-6)
+
+
+def test_api_safety_and_observability(g, trained, monkeypatch):
+    _, out = trained
+    c = client(out, monkeypatch)
+    feats = [0.0] * len(data.AF)
+    r = c.post("/score", json={"tx_id": 10, "features": feats}, headers={"x-request-id": "abc"})
+    assert r.headers["x-request-id"] == "abc"
+    body = r.json()
+    assert body["action"] == ("analyst_review" if body["alert"] else "pass") and body["model_version"]
+    assert c.post("/score", json={"tx_id": -1, "features": feats}).status_code == 422
+    assert c.post("/score", json={"tx_id": 11, "features": feats, "inputs": list(range(2000))}).status_code == 422
+    m = c.get("/metrics").json()
+    assert m["scored_recent"] >= 1 and 0 <= m["alert_rate_recent"] <= 1 and m["latency_ms"]["POST /score"]["n"] >= 1
+
+    from fg import api
+    monkeypatch.setattr(api, "API_KEY", "k3y")
+    assert c.get("/health").status_code == 200
+    assert c.post("/score", json={"tx_id": 12, "features": feats}).status_code == 401
+    assert c.post("/score", json={"tx_id": 12, "features": feats}, headers={"X-API-Key": "k3y"}).status_code == 200
+
+
+def test_missing_artifacts_is_503(tmp_path, monkeypatch):
+    assert client(tmp_path, monkeypatch).get("/health").status_code == 503
+
+
+def test_gate():
+    import json
+    from fg import gate
+    base = json.loads(gate.BASELINE.read_text(encoding="utf-8"))
+    rep = json.loads((gate.ROOT / "artifacts" / "report.json").read_text())
+    assert gate.check(rep, base) == []  # report đã commit phải qua gate
+    worse = json.loads(json.dumps(rep))
+    rt = worse["models"]["lgbm_realtime_stage2 (AF+NE+S)"]
+    rt["pr_auc"] = worse["models"]["random_forest_AF (paper baseline)"]["pr_auc"] - 0.01
+    fails = gate.check(worse, base)
+    assert any("baseline" in f for f in fails) and any("không thắng" in f for f in fails)

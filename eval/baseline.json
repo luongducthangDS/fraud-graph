@@ -1,0 +1,28 @@
+{
+  "source": "artifacts/report.json, train lại 2026-11-12 (khớp số README 10/11)",
+  "metrics": {
+    "models.lgbm_realtime_stage2 (AF+NE+S).pr_auc": 0.8102,
+    "models.lgbm_batch_stage2 (AF+NE+S).pr_auc": 0.8136,
+    "models.lgbm_batch_stage2 (AF+NE+S).f1": 0.8243,
+    "models.lgbm_realtime_stage2 @oof-threshold.f1": 0.7871,
+    "models.lgbm_realtime_stage2 @oof-threshold.recall": 0.7341
+  },
+  "must_beat": [
+    [
+      "models.lgbm_realtime_stage2 (AF+NE+S).pr_auc",
+      "models.random_forest_AF (paper baseline).pr_auc"
+    ],
+    [
+      "models.lgbm_batch_stage2 (AF+NE+S).pr_auc",
+      "models.random_forest_AF (paper baseline).pr_auc"
+    ],
+    [
+      "models.lgbm_batch_stage2 (AF+NE+S).pr_auc",
+      "models.lgbm_AF.pr_auc"
+    ],
+    [
+      "models.lgbm_realtime_stage2 (AF+NE+S).pr_auc",
+      "models.isolation_forest_AF.pr_auc"
+    ]
+  ]
+}

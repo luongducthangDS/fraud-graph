@@ -10,3 +10,5 @@ jobs:
       - run: pip install -r requirements.txt
       # trains the whole pipeline on synthetic data and gates on leakage, parity and quality checks
       - run: pytest -q
+      # report.json đã commit (train trên Elliptic thật) phải qua regression gate so với eval/baseline.json
+      - run: python -m fg.gate

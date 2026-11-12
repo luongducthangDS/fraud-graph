@@ -36,6 +36,28 @@ giao dịch mới + input ids ──► online store (đặc trưng local + đi�
                      LightGBM tầng 2 (AF + NE_in + S_in) ──► điểm, cảnh báo
 ```
 
+## Kiến trúc
+
+```mermaid
+flowchart LR
+  E[Elliptic<br/>mirror HF] --> T[fg/train.py<br/>step 1–34 train, 35–49 test]
+  T --> A[(artifacts/<br/>realtime + batch model,<br/>store.parquet, report.json)]
+  A --> G{fg/gate.py<br/>so eval/baseline.json}
+  A --> API[fg/api.py realtime<br/>chỉ cạnh vào]
+  A --> B[fg/batch.py cuối step<br/>cạnh vào + ra]
+  API -->|score ≥ ngưỡng| Q[action: analyst_review<br/>chuyên viên AML quyết]
+  API -->|ghi lại giao dịch| A
+  API --> L[log JSON + /metrics<br/>tỉ lệ cảnh báo gần đây]
+```
+
+**Quyết định thiết kế**
+
+- **Tách realtime và batch theo thông tin có được lúc chấm:** realtime chỉ dùng cạnh vào để không có train/serve skew; batch cuối step dùng cả hai chiều. Test parity bắt buộc điểm API trùng điểm offline.
+- **Hai tầng LightGBM thay vì GNN:** tầng 2 dùng điểm tầng 1 của hàng xóm (collective). Đơn giản, giải thích được, và trên Elliptic GNN của paper không thắng Random Forest.
+- **Ngưỡng chọn trên out-of-fold (0,24), không trên test:** chọn trên test là rò rỉ; `FG_THRESHOLD` để khớp ngân sách cảnh báo.
+- **API không tự chặn giao dịch:** điểm vượt ngưỡng trả `action: analyst_review`, quyết định cuối thuộc về người. Lý do: sau step 43 mô hình sập, nên tự động chặn dựa trên nó là rủi ro.
+- **Theo dõi tỉ lệ cảnh báo, không chỉ PSI điểm:** PSI không bắt được sự cố step 43; tỉ lệ cảnh báo rơi mạnh là tín hiệu thô nhưng có thật.
+
 ## Kết quả trên tập test (`artifacts/report.json`)
 
 Precision, recall và F1 tính ở ngưỡng 0,5; PR-AUC không phụ thuộc ngưỡng.
@@ -91,16 +113,17 @@ Chỉ khoảng 600 nhãn đã đạt 93 % PR-AUC so với dùng đủ 30 nghìn 
 ```bash
 uv venv -p 3.11 .venv && uv pip install -p .venv -r requirements.txt
 .venv/Scripts/python -m fg.train        # tải 700 MB, khoảng 55 phút trên máy đang chia CPU (1 luồng/mô hình)
-.venv/Scripts/python -m pytest -q       # 5 test trên đồ thị tổng hợp, khoảng 2,5 phút
+.venv/Scripts/python -m pytest -q       # 8 test trên đồ thị tổng hợp, khoảng 2,5 phút
+.venv/Scripts/python -m fg.gate        # regression gate trên artifacts/report.json
 .venv/Scripts/uvicorn fg.api:app --port 8000
 .venv/Scripts/python -m fg.batch 43 44  # batch cuối step dùng cạnh vào + ra → artifacts/batch_scores.parquet
-docker build -t fraud-graph . && docker run -p 8000:8000 fraud-graph
+docker build -t fraud-graph . && docker run -p 8000:8000 -e FG_API_KEY=<key> fraud-graph
 ```
 
 ```bash
-curl -X POST localhost:8000/score -H 'content-type: application/json' \
+curl -X POST localhost:8000/score -H 'content-type: application/json' -H 'X-API-Key: <key>' \
   -d '{"tx_id": 1, "features": [0.0, ... 165 số ...], "inputs": [230425980]}'
-# {"tx_id":1,"score":0.003,"alert":false,"threshold":0.24,"inputs_found":1,"latency_ms":23.5}
+# {"tx_id":1,"score":0.003,"alert":false,"threshold":0.24,"action":"pass","inputs_found":1,"model_version":"3be09b62721e","latency_ms":23.5}
 ```
 
 Trên dữ liệu thật, đo 200 giao dịch qua API: điểm realtime khớp offline (sai lệch tối đa 1,3e-4); latency p50 23 ms, p95 57 ms khi CPU đang bận.
@@ -113,10 +136,16 @@ Trên dữ liệu thật, đo 200 giao dịch qua API: điểm realtime khớp o
   - store ghi lại giao dịch mới
   - validate input
   - quality gate PR-AUC
+- **Regression gate** (`python -m fg.gate`, chạy trong CI): `artifacts/report.json` không được thấp hơn `eval/baseline.json` quá 0,02 (PR-AUC realtime/batch, F1 batch, F1 và recall realtime ở ngưỡng OOF), và phải thắng Random Forest, LightGBM không có đặc trưng đồ thị, Isolation Forest trên cùng tập test.
+- **API:**
+  - `FG_API_KEY` đặt thì mọi endpoint trừ `/health` cần header `X-API-Key`.
+  - Validate input: đúng 165 đặc trưng hữu hạn, `tx_id >= 0`, tối đa 1.000 input; sai thì 422. Thiếu artifact trả 503, không 500.
+  - Log JSON mỗi request: `request_id` (nhận từ `X-Request-ID` hoặc tự sinh), route, status, latency, `model_version` (SHA-256 rút gọn của `realtime.joblib`); `/score` ghi thêm `tx_id`, điểm, cảnh báo để dựng lại quyết định.
+  - `GET /metrics`: số request theo route/status, latency p50/p95, **tỉ lệ cảnh báo trên 1.000 giao dịch gần nhất**.
 - **Online store:** lưu đặc trưng local và điểm tầng 1 của mọi giao dịch đã biết. Giao dịch vừa chấm được ghi lại để giao dịch sau dùng làm hàng xóm.
 
 ## Giới hạn và bước tiếp
 
-- Online store đang nằm trong bộ nhớ, một tiến trình. Lên production cần Redis hoặc feature store, đồng thời xử lý việc input đến trễ.
+- Metrics và online store đang nằm trong bộ nhớ, một tiến trình. Lên production cần Redis hoặc feature store, đồng thời xử lý việc input đến trễ.
 - Chưa thử GNN (GraphSAGE/GAT). Paper cho thấy GCN thua Random Forest trên Elliptic, và kết quả ở mục 2 cho thấy đặc trưng hàng xóm chỉ thêm ít. Nên ưu tiên giải quyết drift trước.
 - Hướng xử lý drift: retrain theo cửa sổ trượt khi có nhãn mới, lấy mẫu kiểm tra ngẫu nhiên, và thêm luật cứng do chuyên gia viết cho kiểu gian lận mới.
